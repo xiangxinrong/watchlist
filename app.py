@@ -15,11 +15,19 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # 关闭对模型修改的
 db = SQLAlchemy(app)  # 初始化扩展，传入程序实例 app
 app.app_context().push()
 
+@app.context_processor
+def inject_user():
+    user = User.query.first()
+    return dict(user=user)
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'),404
+
 @app.route('/')
 def index():
-    user = User.query.first()
     movies = Movie.query.all()
-    return render_template('index.html',name=user,movies=movies)
+    return render_template('index.html',movies=movies)
 
 @app.route('/user/<name>')
 def user_page(name):
@@ -67,3 +75,7 @@ def forge():
         db.session.add(movie)
     db.session.commit()
     click.echo('Done.')
+
+
+
+
