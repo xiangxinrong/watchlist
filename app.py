@@ -1,58 +1,80 @@
-from flask import Flask,render_template
-from flask import url_for
+from flask import Flask,render_template,request, url_for, redirect, flash
 from markupsafe import escape
-
 from flask_sqlalchemy import SQLAlchemy  # 导入扩展类
 import os
-
 import click
 
 app = Flask(__name__)
 
 # 数据库文件一般放在项目根目录即可，app.root_path返回程序实例所在模块的路径（项目根目录），使用它来构建文件路径
+app.config['SECRET_KEY'] = 'dev'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(app.root_path, 'data.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # 关闭对模型修改的监控
 db = SQLAlchemy(app)  # 初始化扩展，传入程序实例 app
 app.app_context().push()
 
-@app.context_processor
-def inject_user():
-    user = User.query.first()
-    return dict(user=user)
-
-@app.errorhandler(404)
-def page_not_found(e):
-    return render_template('404.html'),404
-
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def index():
+    if request.method == 'POST':  # 判断是否是 POST 请求
+        # 获取表单数据
+        title = request.form.get('title')  # 传入表单对应输入字段的 name 值
+        year = request.form.get('year')
+        # 验证数据
+        if not title or not year or len(year) > 4 or len(title) > 60:
+            flash('Invalid input.')  # 显示错误提示
+            return redirect(url_for('index'))  # 重定向回主页
+        # 保存表单数据到数据库
+        movie = Movie(title=title, year=year)  # 创建记录
+        db.session.add(movie)  # 添加到数据库会话
+        db.session.commit()  # 提交数据库会话
+        flash('Item created.')  # 显示成功创建的提示
+        return redirect(url_for('index'))  # 重定向回主页
+
     movies = Movie.query.all()
-    return render_template('index.html',movies=movies)
+    return render_template('index.html', movies=movies)
 
-@app.route('/user/<name>')
-def user_page(name):
-    return f'User:{escape(name)}'
+@app.route('/movie/edit/<int:movie_id>',methods=['GET','POST'])
+def edit(movie_id):
+    movie = Movie.query.get_or_404(movie_id)
+    if request.method == 'POST':
+        title = request.form['title']
+        year = request.form['year']
+        if not title or not year or len(year) != 4 or len(title) > 60:
+            flash('Invalid input.')
+            return redirect(url_for('edit', movie_id=movie_id))  # 重定向回对应的编辑页面
+        movie.title = title  # 更新标题
+        movie.year = year  # 更新年份
+        db.session.commit()  # 提交数据库会话
+        flash('Item updated.')
+        return redirect(url_for('index'))  # 重定向回主页
+    return render_template('edit.html', movie=movie)  # 传入被编辑的电影记录
 
-@app.route('/test')
-def test_url_for():
-    print(url_for('hello'))
-    print(url_for('user_page',name='Daniel'))
-    print(url_for('user_page',name='Peter'))
-    print(url_for('test_url_for'))
-    print(url_for('test_url_for',num=2))
-    return 'Test page'
+@app.route('/movie/delete/<int:movie_id>', methods=['POST'])  # 限定只接受 POST 请求
+def delete(movie_id):
+    movie = Movie.query.get_or_404(movie_id)  # 获取电影记录
+    db.session.delete(movie)  # 删除对应的记录
+    db.session.commit()  # 提交数据库会话
+    flash('Item deleted.')
+    return redirect(url_for('index'))  # 重定向回主页
+
+@app.cli.command()
+@click.option('--drop', is_flag=True, help='Create after drop.')
+def initdb(drop):
+    """Initialize the database."""
+    if drop:
+        db.drop_all()
+    db.create_all()
+    click.echo('Initialized database.')
 
 class User(db.Model):  # 表名将会是 user（自动生成，小写处理）
     id = db.Column(db.Integer, primary_key=True)  # 主键
     name = db.Column(db.String(20))  # 名字
-
 
 class Movie(db.Model):  # 表名将会是 movie
     id = db.Column(db.Integer, primary_key=True)  # 主键
     title = db.Column(db.String(60))  # 电影标题
     year = db.Column(db.String(4))  # 电影年份
 
-@app.cli.command()
 def forge():
     db.create_all()
     name = 'Grey Li'
@@ -75,6 +97,16 @@ def forge():
         db.session.add(movie)
     db.session.commit()
     click.echo('Done.')
+
+@app.context_processor
+def inject_user():
+    user = User.query.first()
+    return dict(user=user)
+
+@app.errorhandler(404)
+def page_not_found(e):
+    return render_template('404.html'), 404
+
 
 
 
